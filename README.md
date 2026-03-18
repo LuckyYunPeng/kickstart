@@ -2,9 +2,9 @@
 
 [中文](#中文) | [English](#english)
 
-`kickstart` is a productivity CLI for macOS + iTerm2. It scans Git repositories on your machine, shows the most recently updated projects, lets you select multiple entries, and opens them in a single iTerm2 window with a grid layout, running `opencode .` in each pane.
+`kickstart` is a productivity CLI for macOS + iTerm2. It scans Git repositories on your machine, shows the most recently updated projects, lets you select multiple entries, and opens them in a single iTerm2 window with a grid layout, running the command you selected during setup in each pane.
 
-`kickstart` 是一个面向 macOS + iTerm2 的终端效率工具。它会扫描你电脑上的 Git 项目，按最近更新时间展示候选项目，支持多选，并在一个 iTerm2 窗口中按网格布局自动打开多个项目，在每个 pane 中执行 `opencode .`。
+`kickstart` 是一个面向 macOS + iTerm2 的终端效率工具。它会扫描你电脑上的 Git 项目，按最近更新时间展示候选项目，支持多选，并在一个 iTerm2 窗口中按网格布局自动打开多个项目，在每个 pane 中执行你初始化时选择的命令，比如 `opencode .`、`claude` 或其他自定义命令。
 
 ---
 
@@ -24,7 +24,7 @@
 - 记住你上一次的选择，并在下次启动时默认勾选
 - 打开一个 iTerm2 窗口
 - 按 grid 布局为每个项目创建 pane
-- 在每个 pane 中自动执行 `opencode .`
+- 在每个 pane 中自动执行你选择的命令，例如 `opencode .`、`claude` 或其他自定义命令
 
 适合经常同时处理多个仓库、希望一键恢复工作环境的开发者。
 
@@ -176,7 +176,7 @@ When you run `kickstart`, it will:
 - remember your last selection and preselect it next time
 - open a single iTerm2 window
 - split the window into a grid of panes
-- run `opencode .` inside each pane
+- run the selected command in each pane, such as `opencode .`, `claude`, or a custom command
 
 It is designed for developers who frequently work across multiple repositories and want to jump back into context instantly.
 

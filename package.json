@@ -1,7 +1,7 @@
 {
   "name": "kickstart-workspace",
   "version": "1.0.0",
-  "description": "Open recent Git projects in a single iTerm2 grid window with opencode.",
+  "description": "Open recent Git projects in a single iTerm2 grid window with your selected command.",
   "type": "module",
   "bin": {
     "kickstart": "./bin/kickstart.js"
