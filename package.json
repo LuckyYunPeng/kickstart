@@ -1,0 +1,15 @@
+{
+  "name": "kickstart-cli",
+  "version": "1.0.0",
+  "description": "Scan recent git projects and open them in iTerm2 with opencode.",
+  "type": "module",
+  "bin": {
+    "kickstart": "./bin/kickstart.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "inquirer": "^12.4.2"
+  }
+}
