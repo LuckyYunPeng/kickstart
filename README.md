@@ -42,17 +42,9 @@
 
 ### 示例截图
 
-你可以在 GitHub README 中放这两张图：
-
-```md
-![初始化配置](./assets/init.png)
-
-> 首次运行时，选择启动命令与最近仓库展示数量。
-
 ![项目网格布局](./assets/workspace-grid.png)
 
 > 选择多个仓库后，kickstart 会在同一个 iTerm2 窗口中按网格布局打开项目，并在每个 pane 中执行启动命令。
-```
 
 如果你还没准备截图，也可以先用这段文案作为占位说明：
 
@@ -194,17 +186,9 @@ It is designed for developers who frequently work across multiple repositories a
 
 ### Screenshot Copy
 
-You can add these screenshots to your GitHub README:
-
-```md
-![Initial setup](./assets/init.png)
-
-> On first run, choose the launch command and how many recent repositories to display.
-
 ![Workspace grid](./assets/workspace-grid.png)
 
 > After selecting multiple repositories, kickstart opens them in a single iTerm2 window with a grid layout and runs the chosen command in each pane.
-```
 
 If you do not have screenshots yet, you can use these placeholder captions first:
 
