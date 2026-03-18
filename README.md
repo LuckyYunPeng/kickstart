@@ -2,9 +2,9 @@
 
 [中文](#中文) | [English](#english)
 
-`kickstart` is a productivity CLI for macOS + iTerm2. It scans Git repositories on your machine, shows the most recently updated projects, lets you select multiple entries, and opens them in a single iTerm2 window with a grid layout, running the command you selected during setup in each pane.
+`kickstart` is a terminal productivity tool for macOS + iTerm2. It scans Git projects on your machine, shows candidate projects by most recent update time, supports multi-selection, and automatically opens multiple projects in a single iTerm2 window with a grid layout, running the command you chose during initialization in each pane, such as `opencode .`, `claude`, or another custom command, so you can quickly restore your working context.
 
-`kickstart` 是一个面向 macOS + iTerm2 的终端效率工具。它会扫描你电脑上的 Git 项目，按最近更新时间展示候选项目，支持多选，并在一个 iTerm2 窗口中按网格布局自动打开多个项目，在每个 pane 中执行你初始化时选择的命令，比如 `opencode .`、`claude` 或其他自定义命令。
+`kickstart` 是一个面向 macOS + iTerm2 的终端效率工具。它会扫描你电脑上的 Git 项目，按最近更新时间展示候选项目，支持多选，并在一个 iTerm2 窗口中按网格布局自动打开多个项目，在每个 pane 中执行你初始化时选择的命令，比如 `opencode .`、`claude` 或其他自定义命令，快速恢复工作现场。
 
 ---
 
@@ -12,7 +12,7 @@
 
 ### 项目介绍
 
-`kickstart` 用来帮你快速恢复多项目工作现场。
+`kickstart` 是一个面向 macOS + iTerm2 的终端效率工具。它会扫描你电脑上的 Git 项目，按最近更新时间展示候选项目，支持多选，并在一个 iTerm2 窗口中按网格布局自动打开多个项目，在每个 pane 中执行你初始化时选择的命令，比如 `opencode .`、`claude` 或其他自定义命令，快速恢复工作现场。
 
 当你在终端输入 `kickstart` 时，它会：
 
@@ -156,7 +156,7 @@ kickstart reset
 
 ### Overview
 
-`kickstart` helps you restore a multi-project workspace in one command.
+`kickstart` is a terminal productivity tool for macOS + iTerm2. It scans Git projects on your machine, shows candidate projects by most recent update time, supports multi-selection, and automatically opens multiple projects in a single iTerm2 window with a grid layout, running the command you chose during initialization in each pane, such as `opencode .`, `claude`, or another custom command, so you can quickly restore your working context.
 
 When you run `kickstart`, it will:
 
