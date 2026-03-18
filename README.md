@@ -18,17 +18,9 @@
 
 ### 设计截图
 
-![项目网格布局](./assets/workspace-grid.png)
+![项目网格布局](https://raw.githubusercontent.com/LuckyYunPeng/kickstart/main/assets/workspace-grid.png)
 
 > 选择多个仓库后，kickstart 会在同一个 iTerm2 窗口中按网格布局打开项目，并在每个 pane 中执行启动命令。
-
-### 功能特性
-
-- 自动扫描 Git 仓库并按最近更新时间排序
-- 支持多选项目
-- 只打开一个 iTerm2 窗口并自动按网格分 pane
-- 支持 `opencode .`、`claude` 和自定义命令
-- 记住上一次选择，方便快速恢复现场
 
 ### 使用方式
 
@@ -50,7 +42,7 @@ kickstart
 - `claude` -> `claude`
 - `custom`
 
-### 使用场景
+### 适用场景
 
 - 同时维护多个 Git 仓库
 - 每天固定打开一组项目
@@ -69,17 +61,9 @@ It scans local Git projects, shows candidate repositories by most recent update 
 
 ### Screenshot
 
-![Workspace grid](./assets/workspace-grid.png)
+![Workspace grid](https://raw.githubusercontent.com/LuckyYunPeng/kickstart/main/assets/workspace-grid.png)
 
 > After selecting multiple repositories, kickstart opens them in a single iTerm2 window with a grid layout and runs the chosen command in each pane.
-
-### Features
-
-- Scan Git repositories automatically and sort by recent activity
-- Support multi-select project picking
-- Open one iTerm2 window and split panes in a grid
-- Support `opencode .`, `claude`, and custom commands
-- Remember the last selection for fast workspace recovery
 
 ### Usage
 

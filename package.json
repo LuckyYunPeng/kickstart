@@ -1,6 +1,6 @@
 {
   "name": "kickstart-workspace",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Open recent Git projects in a single iTerm2 grid window with your selected command.",
   "type": "module",
   "bin": {
@@ -8,6 +8,7 @@
   },
   "files": [
     "bin",
+    "assets",
     "README.md",
     "LICENSE"
   ],
@@ -19,6 +20,14 @@
     "productivity",
     "opencode"
   ],
+  "homepage": "https://github.com/LuckyYunPeng/kickstart",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LuckyYunPeng/kickstart.git"
+  },
+  "bugs": {
+    "url": "https://github.com/LuckyYunPeng/kickstart/issues"
+  },
   "license": "MIT",
   "engines": {
     "node": ">=18"
