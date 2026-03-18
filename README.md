@@ -40,6 +40,25 @@
 - 自动记住上一次的选择
 - 针对 macOS + iTerm2 场景优化
 
+### 示例截图
+
+你可以在 GitHub README 中放这两张图：
+
+```md
+![初始化配置](./assets/init.png)
+
+> 首次运行时，选择启动命令与最近仓库展示数量。
+
+![项目网格布局](./assets/workspace-grid.png)
+
+> 选择多个仓库后，kickstart 会在同一个 iTerm2 窗口中按网格布局打开项目，并在每个 pane 中执行启动命令。
+```
+
+如果你还没准备截图，也可以先用这段文案作为占位说明：
+
+- 初始化界面：首次选择 `opencode`、`claude` 或 `custom`，并配置最近仓库数量
+- 工作区界面：一个 iTerm2 窗口内按 grid 打开多个仓库，每个 pane 自动进入工作状态
+
 ### 使用方式
 
 #### 1. 安装
@@ -172,6 +191,25 @@ It is designed for developers who frequently work across multiple repositories a
 - One iTerm2 window with grid panes
 - Last selection memory
 - Optimized for macOS + iTerm2 workflows
+
+### Screenshot Copy
+
+You can add these screenshots to your GitHub README:
+
+```md
+![Initial setup](./assets/init.png)
+
+> On first run, choose the launch command and how many recent repositories to display.
+
+![Workspace grid](./assets/workspace-grid.png)
+
+> After selecting multiple repositories, kickstart opens them in a single iTerm2 window with a grid layout and runs the chosen command in each pane.
+```
+
+If you do not have screenshots yet, you can use these placeholder captions first:
+
+- Initial setup: choose `opencode`, `claude`, or `custom`, then select the recent repository limit
+- Workspace grid: open multiple repositories in one iTerm2 window, with each pane entering the working state automatically
 
 ### Usage
 
