@@ -10,11 +10,12 @@ import inquirer from "inquirer";
 const execFileAsync = promisify(execFile);
 const HOME_DIR = os.homedir();
 const CACHE_DIR = path.join(HOME_DIR, ".kickstart");
+const CONFIG_FILE = path.join(CACHE_DIR, "config.json");
 const LAST_SELECTION_FILE = path.join(CACHE_DIR, "last-selection.json");
-const MAX_RESULTS = 10;
 const WINDOW_READY_DELAY = 0.4;
 const PANE_READY_DELAY = 0.25;
 const COMMAND_READY_DELAY = 0.15;
+const MAX_RESULT_OPTIONS = [5, 10, 15, 20, 25, 30];
 const SKIP_DIRS = new Set([
   ".Trash",
   ".cache",
@@ -58,6 +59,108 @@ async function readLastSelection() {
   } catch {
     return [];
   }
+}
+
+async function readConfig() {
+  try {
+    const content = await fs.readFile(CONFIG_FILE, "utf8");
+    const parsed = JSON.parse(content);
+
+    if (typeof parsed.launchCommand !== "string" || parsed.launchCommand.trim() === "") {
+      return null;
+    }
+
+    if (!MAX_RESULT_OPTIONS.includes(parsed.maxResults)) {
+      return null;
+    }
+
+    return {
+      launchCommand: parsed.launchCommand.trim(),
+      maxResults: parsed.maxResults
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function writeConfig(config) {
+  await fs.mkdir(CACHE_DIR, { recursive: true });
+  await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2), "utf8");
+}
+
+function getCommandBinary(command) {
+  const [binary = ""] = command.trim().split(/\s+/);
+  return binary;
+}
+
+async function initializeConfig() {
+  process.stdout.write("首次使用 kickstart，先完成一次初始化。\n");
+
+  const { launchPreset } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "launchPreset",
+      message: "请选择启动后要执行的命令",
+      choices: [
+        {
+          name: "opencode",
+          value: "opencode ."
+        },
+        {
+          name: "claude",
+          value: "claude"
+        },
+        {
+          name: "custom",
+          value: "custom"
+        }
+      ]
+    }
+  ]);
+
+  const { maxResults } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "maxResults",
+      message: "请选择最近仓库展示数量",
+      choices: MAX_RESULT_OPTIONS.map((value) => ({
+        name: `${value}`,
+        value
+      })),
+      default: 10
+    }
+  ]);
+
+  let launchCommand = launchPreset;
+
+  if (launchPreset === "custom") {
+    const customAnswer = await inquirer.prompt([
+      {
+        type: "input",
+        name: "launchCommand",
+        message: "请输入项目启动命令",
+        validate(value) {
+          return value.trim() ? true : "命令不能为空";
+        }
+      }
+    ]);
+
+    launchCommand = customAnswer.launchCommand.trim();
+  }
+
+  const config = { launchCommand, maxResults };
+  await writeConfig(config);
+  process.stdout.write(
+    `初始化完成，当前启动命令为：${launchCommand}，最近仓库数量为：${maxResults}\n`
+  );
+
+  return config;
+}
+
+async function resetConfig() {
+  await fs.rm(CONFIG_FILE, { force: true });
+  await fs.rm(LAST_SELECTION_FILE, { force: true });
+  process.stdout.write("已清空 kickstart 配置与上次选择记录。\n");
 }
 
 async function writeLastSelection(selectedRepos) {
@@ -149,7 +252,7 @@ function appleScriptQuote(value) {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-function buildSessionCommands(prefix, count, repoPaths) {
+function buildSessionCommands(prefix, count, repoPaths, launchCommand) {
   const lines = [];
 
   for (let index = 1; index < count; index += 1) {
@@ -164,7 +267,7 @@ function buildSessionCommands(prefix, count, repoPaths) {
 
   for (let index = 0; index < count; index += 1) {
     const sessionName = `${prefix}Session${index + 1}`;
-    const command = appleScriptQuote(`cd ${shellQuote(repoPaths[index])} && opencode .`);
+    const command = appleScriptQuote(`cd ${shellQuote(repoPaths[index])} && ${launchCommand}`);
 
     lines.push(`tell ${sessionName}`);
     lines.push(`write text "${command}"`);
@@ -175,7 +278,7 @@ function buildSessionCommands(prefix, count, repoPaths) {
   return lines;
 }
 
-async function openProjectsInIterm(repoPaths) {
+async function openProjectsInIterm(repoPaths, launchCommand) {
   const topRowCount = Math.ceil(repoPaths.length / 2);
   const bottomRowCount = repoPaths.length - topRowCount;
   const topRowRepos = repoPaths.slice(0, topRowCount);
@@ -196,10 +299,10 @@ async function openProjectsInIterm(repoPaths) {
     scriptLines.push(`delay ${PANE_READY_DELAY}`);
   }
 
-  scriptLines.push(...buildSessionCommands("top", topRowCount, topRowRepos));
+  scriptLines.push(...buildSessionCommands("top", topRowCount, topRowRepos, launchCommand));
 
   if (bottomRowCount > 0) {
-    scriptLines.push(...buildSessionCommands("bottom", bottomRowCount, bottomRowRepos));
+    scriptLines.push(...buildSessionCommands("bottom", bottomRowCount, bottomRowRepos, launchCommand));
   }
 
   scriptLines.push("end tell");
@@ -209,25 +312,49 @@ async function openProjectsInIterm(repoPaths) {
   await execFileAsync("osascript", ["-e", script]);
 }
 
-async function ensureEnvironment() {
+async function ensureEnvironment(config) {
   if (process.platform !== "darwin") {
     throw new Error("kickstart 目前只支持 macOS。");
   }
 
-  const hasOpenCode = await pathExists("/usr/bin/which");
-  if (!hasOpenCode) {
-    throw new Error("系统缺少 which 命令，无法检查 opencode。");
+  const isWhichAvailable = await pathExists("/usr/bin/which");
+  if (!isWhichAvailable) {
+    throw new Error("系统缺少 which 命令，无法检查启动命令。");
+  }
+
+  const binary = getCommandBinary(config.launchCommand);
+  if (!binary) {
+    throw new Error("启动命令无效，请重新初始化。");
   }
 
   try {
-    await execFileAsync("which", ["opencode"]);
+    await execFileAsync("which", [binary]);
   } catch {
-    throw new Error("未检测到 opencode，请先确保 opencode 已加入 PATH。");
+    throw new Error(`未检测到 ${binary}，请先确保它已加入 PATH。`);
   }
 }
 
 async function main() {
-  await ensureEnvironment();
+  const commandArg = process.argv[2];
+  const isResetRequested = commandArg === "reset";
+
+  if (commandArg && !isResetRequested) {
+    throw new Error("仅支持默认启动或 `kickstart reset`。");
+  }
+
+  if (isResetRequested) {
+    await resetConfig();
+    return;
+  }
+
+  let config = await readConfig();
+  const isInitialized = Boolean(config);
+
+  if (!isInitialized) {
+    config = await initializeConfig();
+  }
+
+  await ensureEnvironment(config);
 
   process.stdout.write(`正在扫描 ${HOME_DIR} 下的 Git 项目...\n`);
   const repoPaths = await collectGitRepos(HOME_DIR);
@@ -246,7 +373,7 @@ async function main() {
 
   const recentRepos = repos
     .sort((left, right) => right.updatedAt - left.updatedAt)
-    .slice(0, MAX_RESULTS);
+    .slice(0, config.maxResults);
 
   const lastSelection = new Set(await readLastSelection());
 
@@ -260,7 +387,7 @@ async function main() {
         value: repo.repoPath,
         checked: lastSelection.has(repo.repoPath)
       })),
-      pageSize: MAX_RESULTS,
+      pageSize: config.maxResults,
       loop: false,
       validate(value) {
         return value.length > 0 ? true : "至少选择一个项目";
@@ -270,7 +397,7 @@ async function main() {
 
   await writeLastSelection(selectedRepos);
 
-  await openProjectsInIterm(selectedRepos);
+  await openProjectsInIterm(selectedRepos, config.launchCommand);
 
   process.stdout.write(`已打开 ${selectedRepos.length} 个项目。\n`);
 }

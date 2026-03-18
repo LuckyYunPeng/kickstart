@@ -1,11 +1,25 @@
 {
-  "name": "kickstart-cli",
+  "name": "kickstart-workspace",
   "version": "1.0.0",
-  "description": "Scan recent git projects and open them in iTerm2 with opencode.",
+  "description": "Open recent Git projects in a single iTerm2 grid window with opencode.",
   "type": "module",
   "bin": {
     "kickstart": "./bin/kickstart.js"
   },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "cli",
+    "iterm2",
+    "macos",
+    "git",
+    "productivity",
+    "opencode"
+  ],
+  "license": "MIT",
   "engines": {
     "node": ">=18"
   },
