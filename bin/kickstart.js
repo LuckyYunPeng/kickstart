@@ -383,7 +383,7 @@ async function main() {
       name: "selectedRepos",
       message: "选择要打开的项目",
       choices: recentRepos.map((repo) => ({
-        name: `${path.basename(repo.repoPath)}  ${repo.repoPath}  ${formatUpdatedAt(repo.updatedAt)}`,
+        name: `${path.basename(repo.repoPath)}  ${formatUpdatedAt(repo.updatedAt)}`,
         value: repo.repoPath,
         checked: lastSelection.has(repo.repoPath)
       })),
