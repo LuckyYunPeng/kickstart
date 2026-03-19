@@ -278,7 +278,72 @@ function buildSessionCommands(prefix, count, repoPaths, launchCommand) {
   return lines;
 }
 
+function buildCommandWriteLines(sessionNames, repoPaths, launchCommand) {
+  return repoPaths.flatMap((repoPath, index) => {
+    const command = appleScriptQuote(`cd ${shellQuote(repoPath)} && ${launchCommand}`);
+
+    return [
+      `tell ${sessionNames[index]}`,
+      `write text "${command}"`,
+      "end tell",
+      `delay ${COMMAND_READY_DELAY}`
+    ];
+  });
+}
+
 async function openProjectsInIterm(repoPaths, launchCommand) {
+  if (repoPaths.length === 2) {
+    const scriptLines = [
+      'tell application "iTerm"',
+      "activate",
+      "set newWindow to create window with default profile",
+      "tell newWindow to set zoomed to true",
+      `delay ${WINDOW_READY_DELAY}`,
+      "set leftSession to current session of newWindow",
+      "tell leftSession",
+      "set rightSession to split vertically with default profile",
+      "end tell",
+      `delay ${PANE_READY_DELAY}`,
+      ...buildCommandWriteLines(["leftSession", "rightSession"], repoPaths, launchCommand),
+      "end tell"
+    ];
+
+    await execFileAsync("osascript", ["-e", scriptLines.join("\n")]);
+    return;
+  }
+
+  if (repoPaths.length === 3) {
+    const scriptLines = [
+      'tell application "iTerm"',
+      "activate",
+      "set newWindow to create window with default profile",
+      "tell newWindow to set zoomed to true",
+      `delay ${WINDOW_READY_DELAY}`,
+      "set topLeftSession to current session of newWindow",
+      "tell topLeftSession",
+      "set topRightSession to split vertically with default profile",
+      "end tell",
+      `delay ${PANE_READY_DELAY}`,
+      "tell topLeftSession",
+      "set bottomLeftSession to split horizontally with default profile",
+      "end tell",
+      `delay ${PANE_READY_DELAY}`,
+      "tell topRightSession",
+      "set bottomRightSession to split horizontally with default profile",
+      "end tell",
+      `delay ${PANE_READY_DELAY}`,
+      ...buildCommandWriteLines(
+        ["topLeftSession", "topRightSession", "bottomLeftSession"],
+        repoPaths,
+        launchCommand
+      ),
+      "end tell"
+    ];
+
+    await execFileAsync("osascript", ["-e", scriptLines.join("\n")]);
+    return;
+  }
+
   const topRowCount = Math.ceil(repoPaths.length / 2);
   const bottomRowCount = repoPaths.length - topRowCount;
   const topRowRepos = repoPaths.slice(0, topRowCount);
