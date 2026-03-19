@@ -12,6 +12,7 @@ const HOME_DIR = os.homedir();
 const CACHE_DIR = path.join(HOME_DIR, ".kickstart");
 const CONFIG_FILE = path.join(CACHE_DIR, "config.json");
 const LAST_SELECTION_FILE = path.join(CACHE_DIR, "last-selection.json");
+const WORKSPACES_FILE = path.join(CACHE_DIR, "workspaces.json");
 const WINDOW_READY_DELAY = 0.4;
 const PANE_READY_DELAY = 0.25;
 const COMMAND_READY_DELAY = 0.15;
@@ -86,6 +87,377 @@ async function readConfig() {
 async function writeConfig(config) {
   await fs.mkdir(CACHE_DIR, { recursive: true });
   await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2), "utf8");
+}
+
+function normalizeWorkspaceName(name) {
+  return name.trim();
+}
+
+function isValidWorkspaceRecord(workspace) {
+  return (
+    workspace &&
+    typeof workspace.name === "string" &&
+    workspace.name.trim() !== "" &&
+    Array.isArray(workspace.repoPaths)
+  );
+}
+
+function sortWorkspaces(workspaces) {
+  return [...workspaces].sort((left, right) => {
+    const leftUpdatedAt = Date.parse(left.updatedAt ?? "") || 0;
+    const rightUpdatedAt = Date.parse(right.updatedAt ?? "") || 0;
+    return rightUpdatedAt - leftUpdatedAt;
+  });
+}
+
+async function readWorkspaces() {
+  try {
+    const content = await fs.readFile(WORKSPACES_FILE, "utf8");
+    const parsed = JSON.parse(content);
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return sortWorkspaces(
+      parsed
+        .filter(isValidWorkspaceRecord)
+        .map((workspace) => ({
+          name: normalizeWorkspaceName(workspace.name),
+          repoPaths: workspace.repoPaths.filter((item) => typeof item === "string"),
+          updatedAt:
+            typeof workspace.updatedAt === "string" && workspace.updatedAt.trim() !== ""
+              ? workspace.updatedAt
+              : new Date(0).toISOString()
+        }))
+        .filter((workspace) => workspace.repoPaths.length > 0)
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function writeWorkspaces(workspaces) {
+  await fs.mkdir(CACHE_DIR, { recursive: true });
+  await fs.writeFile(WORKSPACES_FILE, JSON.stringify(sortWorkspaces(workspaces), null, 2), "utf8");
+}
+
+function isWorkspaceNameTaken(workspaces, workspaceName, excludeName = "") {
+  return workspaces.some(
+    (workspace) =>
+      workspace.name === workspaceName &&
+      (excludeName === "" || workspace.name !== excludeName)
+  );
+}
+
+async function saveWorkspace(workspaceName, repoPaths) {
+  const normalizedName = normalizeWorkspaceName(workspaceName);
+  const workspaces = await readWorkspaces();
+
+  if (isWorkspaceNameTaken(workspaces, normalizedName)) {
+    throw new Error(`工作区预设 ${normalizedName} 已存在。`);
+  }
+
+  workspaces.push({
+    name: normalizedName,
+    repoPaths: [...repoPaths],
+    updatedAt: new Date().toISOString()
+  });
+
+  await writeWorkspaces(workspaces);
+}
+
+async function renameWorkspace(oldName, newName) {
+  const normalizedNewName = normalizeWorkspaceName(newName);
+  const workspaces = await readWorkspaces();
+
+  if (isWorkspaceNameTaken(workspaces, normalizedNewName, oldName)) {
+    throw new Error(`工作区预设 ${normalizedNewName} 已存在。`);
+  }
+
+  const nextWorkspaces = workspaces.map((workspace) => {
+    if (workspace.name !== oldName) {
+      return workspace;
+    }
+
+    return {
+      ...workspace,
+      name: normalizedNewName,
+      updatedAt: new Date().toISOString()
+    };
+  });
+
+  await writeWorkspaces(nextWorkspaces);
+}
+
+async function deleteWorkspace(workspaceName) {
+  const workspaces = await readWorkspaces();
+  const nextWorkspaces = workspaces.filter((workspace) => workspace.name !== workspaceName);
+  await writeWorkspaces(nextWorkspaces);
+}
+
+function buildWorkspaceChoices(workspaces) {
+  return sortWorkspaces(workspaces).map((workspace) => ({
+    name: `${workspace.name}  ${workspace.repoPaths.length} 个项目`,
+    value: workspace.name,
+    description: workspace.repoPaths.join(", ")
+  }));
+}
+
+async function promptWorkspaceName(message, existingName = "") {
+  const workspaces = await readWorkspaces();
+  const { workspaceName } = await inquirer.prompt([
+    {
+      type: "input",
+      name: "workspaceName",
+      message,
+      default: existingName,
+      validate(value) {
+        const normalizedName = normalizeWorkspaceName(value);
+
+        if (!normalizedName) {
+          return "预设名称不能为空";
+        }
+
+        if (isWorkspaceNameTaken(workspaces, normalizedName, existingName)) {
+          return "预设名称已存在";
+        }
+
+        return true;
+      }
+    }
+  ]);
+
+  return normalizeWorkspaceName(workspaceName);
+}
+
+async function promptStartupMode() {
+  const { startupMode } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "startupMode",
+      message: "请选择进入方式",
+      choices: [
+        {
+          name: "最近项目",
+          value: "recentProjects"
+        },
+        {
+          name: "工作区预设",
+          value: "workspacePresets"
+        },
+        {
+          name: "管理预设",
+          value: "manageWorkspaces"
+        }
+      ]
+    }
+  ]);
+
+  return startupMode;
+}
+
+async function promptRecentRepoSelection(recentRepos, lastSelection, maxResults) {
+  const { selectedRepos } = await inquirer.prompt([
+    {
+      type: "checkbox",
+      name: "selectedRepos",
+      message: "选择要打开的项目",
+      choices: recentRepos.map((repo) => ({
+        name: `${path.basename(repo.repoPath)}  ${formatUpdatedAt(repo.updatedAt)}`,
+        value: repo.repoPath,
+        checked: lastSelection.has(repo.repoPath)
+      })),
+      pageSize: maxResults,
+      loop: false,
+      validate(value) {
+        return value.length > 0 ? true : "至少选择一个项目";
+      }
+    }
+  ]);
+
+  return selectedRepos;
+}
+
+async function openSelectedProjects(selectedRepos, launchCommand) {
+  await writeLastSelection(selectedRepos);
+  await openProjectsInIterm(selectedRepos, launchCommand);
+  process.stdout.write(`已打开 ${selectedRepos.length} 个项目。\n`);
+}
+
+async function handleRecentProjectsFlow(config) {
+  process.stdout.write(`正在扫描 ${HOME_DIR} 下的 Git 项目...\n`);
+  const repoPaths = await collectGitRepos(HOME_DIR);
+
+  if (repoPaths.length === 0) {
+    process.stdout.write("没有找到 Git 项目。\n");
+    return;
+  }
+
+  const repos = await Promise.all(
+    repoPaths.map(async (repoPath) => ({
+      repoPath,
+      updatedAt: await getRepoUpdatedAt(repoPath)
+    }))
+  );
+
+  const recentRepos = repos
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+    .slice(0, config.maxResults);
+
+  const lastSelection = new Set(await readLastSelection());
+  const selectedRepos = await promptRecentRepoSelection(
+    recentRepos,
+    lastSelection,
+    config.maxResults
+  );
+
+  const { nextAction } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "nextAction",
+      message: "接下来要怎么处理这组项目？",
+      choices: [
+        {
+          name: "直接打开",
+          value: "openDirectly"
+        },
+        {
+          name: "保存为预设后打开",
+          value: "saveAndOpen"
+        }
+      ]
+    }
+  ]);
+
+  if (nextAction === "saveAndOpen") {
+    const workspaceName = await promptWorkspaceName("请输入工作区预设名称");
+    await saveWorkspace(workspaceName, selectedRepos);
+    process.stdout.write(`已保存工作区预设：${workspaceName}\n`);
+  }
+
+  await openSelectedProjects(selectedRepos, config.launchCommand);
+}
+
+async function getExistingRepoPaths(repoPaths) {
+  const results = await Promise.all(
+    repoPaths.map(async (repoPath) => ({
+      repoPath,
+      isExisting: await pathExists(repoPath)
+    }))
+  );
+
+  const validRepoPaths = results.filter((item) => item.isExisting).map((item) => item.repoPath);
+  const invalidRepoPaths = results.filter((item) => !item.isExisting).map((item) => item.repoPath);
+
+  return { validRepoPaths, invalidRepoPaths };
+}
+
+async function handleWorkspacePresetsFlow(config) {
+  const workspaces = await readWorkspaces();
+
+  if (workspaces.length === 0) {
+    process.stdout.write("还没有保存任何工作区预设。\n");
+    return;
+  }
+
+  const { workspaceName } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "workspaceName",
+      message: "选择要打开的工作区预设",
+      choices: buildWorkspaceChoices(workspaces),
+      loop: false
+    }
+  ]);
+
+  const selectedWorkspace = workspaces.find((workspace) => workspace.name === workspaceName);
+  const { validRepoPaths, invalidRepoPaths } = await getExistingRepoPaths(selectedWorkspace.repoPaths);
+
+  if (invalidRepoPaths.length > 0) {
+    process.stdout.write(`已跳过 ${invalidRepoPaths.length} 个失效项目路径。\n`);
+  }
+
+  if (validRepoPaths.length === 0) {
+    throw new Error(`工作区预设 ${workspaceName} 没有可用的项目路径。`);
+  }
+
+  await openSelectedProjects(validRepoPaths, config.launchCommand);
+}
+
+async function handleManageWorkspacesFlow() {
+  const workspaces = await readWorkspaces();
+
+  if (workspaces.length === 0) {
+    process.stdout.write("当前没有任何工作区预设可管理。\n");
+    return;
+  }
+
+  const { manageAction } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "manageAction",
+      message: "请选择预设管理操作",
+      choices: [
+        {
+          name: "查看预设",
+          value: "view"
+        },
+        {
+          name: "重命名预设",
+          value: "rename"
+        },
+        {
+          name: "删除预设",
+          value: "delete"
+        }
+      ]
+    }
+  ]);
+
+  const { workspaceName } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "workspaceName",
+      message: "请选择工作区预设",
+      choices: buildWorkspaceChoices(workspaces),
+      loop: false
+    }
+  ]);
+
+  const selectedWorkspace = workspaces.find((workspace) => workspace.name === workspaceName);
+
+  if (manageAction === "view") {
+    process.stdout.write(`工作区预设：${selectedWorkspace.name}\n`);
+    selectedWorkspace.repoPaths.forEach((repoPath, index) => {
+      process.stdout.write(`${index + 1}. ${repoPath}\n`);
+    });
+    return;
+  }
+
+  if (manageAction === "rename") {
+    const nextWorkspaceName = await promptWorkspaceName("请输入新的预设名称", selectedWorkspace.name);
+    await renameWorkspace(selectedWorkspace.name, nextWorkspaceName);
+    process.stdout.write(`已将工作区预设重命名为：${nextWorkspaceName}\n`);
+    return;
+  }
+
+  const { isConfirmed } = await inquirer.prompt([
+    {
+      type: "confirm",
+      name: "isConfirmed",
+      message: `确定删除工作区预设 ${selectedWorkspace.name} 吗？`,
+      default: false
+    }
+  ]);
+
+  if (!isConfirmed) {
+    process.stdout.write("已取消删除。\n");
+    return;
+  }
+
+  await deleteWorkspace(selectedWorkspace.name);
+  process.stdout.write(`已删除工作区预设：${selectedWorkspace.name}\n`);
 }
 
 function getCommandBinary(command) {
@@ -420,51 +792,19 @@ async function main() {
   }
 
   await ensureEnvironment(config);
+  const startupMode = await promptStartupMode();
 
-  process.stdout.write(`正在扫描 ${HOME_DIR} 下的 Git 项目...\n`);
-  const repoPaths = await collectGitRepos(HOME_DIR);
-
-  if (repoPaths.length === 0) {
-    process.stdout.write("没有找到 Git 项目。\n");
+  if (startupMode === "recentProjects") {
+    await handleRecentProjectsFlow(config);
     return;
   }
 
-  const repos = await Promise.all(
-    repoPaths.map(async (repoPath) => ({
-      repoPath,
-      updatedAt: await getRepoUpdatedAt(repoPath)
-    }))
-  );
+  if (startupMode === "workspacePresets") {
+    await handleWorkspacePresetsFlow(config);
+    return;
+  }
 
-  const recentRepos = repos
-    .sort((left, right) => right.updatedAt - left.updatedAt)
-    .slice(0, config.maxResults);
-
-  const lastSelection = new Set(await readLastSelection());
-
-  const { selectedRepos } = await inquirer.prompt([
-    {
-      type: "checkbox",
-      name: "selectedRepos",
-      message: "选择要打开的项目",
-      choices: recentRepos.map((repo) => ({
-        name: `${path.basename(repo.repoPath)}  ${formatUpdatedAt(repo.updatedAt)}`,
-        value: repo.repoPath,
-        checked: lastSelection.has(repo.repoPath)
-      })),
-      pageSize: config.maxResults,
-      loop: false,
-      validate(value) {
-        return value.length > 0 ? true : "至少选择一个项目";
-      }
-    }
-  ]);
-
-  await writeLastSelection(selectedRepos);
-
-  await openProjectsInIterm(selectedRepos, config.launchCommand);
-
-  process.stdout.write(`已打开 ${selectedRepos.length} 个项目。\n`);
+  await handleManageWorkspacesFlow();
 }
 
 main().catch((error) => {
