@@ -264,7 +264,7 @@ async function promptRecentRepoSelection(recentRepos, lastSelection, maxResults)
       name: "selectedRepos",
       message: "选择要打开的项目",
       choices: recentRepos.map((repo) => ({
-        name: `${path.basename(repo.repoPath)}  ${formatUpdatedAt(repo.updatedAt)}`,
+        name: formatRecentRepoChoice(repo),
         value: repo.repoPath,
         checked: lastSelection.has(repo.repoPath)
       })),
@@ -277,6 +277,57 @@ async function promptRecentRepoSelection(recentRepos, lastSelection, maxResults)
   ]);
 
   return selectedRepos;
+}
+
+function formatRecentRepoChoice(repo) {
+  const repoName = path.basename(repo.repoPath);
+  const updatedAtText = formatUpdatedAt(repo.updatedAt);
+  const branchText = repo.branchName || "unknown";
+  const statusText = repo.isDirty ? "\u001b[33m! 待提交\u001b[0m" : "";
+
+  return `${repoName}  ${updatedAtText}  [${branchText}]${statusText ? `  ${statusText}` : ""}`;
+}
+
+function parseBranchFromStatusHeader(headerLine) {
+  if (!headerLine.startsWith("## ")) {
+    return "unknown";
+  }
+
+  const branchPart = headerLine.slice(3).split("...")[0].trim();
+
+  if (branchPart === "HEAD (no branch)") {
+    return "HEAD";
+  }
+
+  return branchPart || "unknown";
+}
+
+async function getRepoState(repoPath) {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["-C", repoPath, "status", "--short", "--branch"],
+      { timeout: 1200, maxBuffer: 1024 * 1024 }
+    );
+
+    const lines = stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line !== "");
+
+    const branchName = parseBranchFromStatusHeader(lines[0] ?? "");
+    const isDirty = lines.slice(1).length > 0;
+
+    return {
+      branchName,
+      isDirty
+    };
+  } catch {
+    return {
+      branchName: "unknown",
+      isDirty: false
+    };
+  }
 }
 
 async function openSelectedProjects(selectedRepos, launchCommand) {
@@ -305,9 +356,16 @@ async function handleRecentProjectsFlow(config) {
     .sort((left, right) => right.updatedAt - left.updatedAt)
     .slice(0, config.maxResults);
 
+  const recentReposWithState = await Promise.all(
+    recentRepos.map(async (repo) => ({
+      ...repo,
+      ...(await getRepoState(repo.repoPath))
+    }))
+  );
+
   const lastSelection = new Set(await readLastSelection());
   const selectedRepos = await promptRecentRepoSelection(
-    recentRepos,
+    recentReposWithState,
     lastSelection,
     config.maxResults
   );
@@ -475,7 +533,7 @@ async function initializeConfig() {
       message: "请选择启动后要执行的命令",
       choices: [
         {
-          name: "opencode",
+          name: "opencode .",
           value: "opencode ."
         },
         {
@@ -483,7 +541,11 @@ async function initializeConfig() {
           value: "claude"
         },
         {
-          name: "custom",
+          name: "kk",
+          value: "kk"
+        },
+        {
+          name: "自定义输入",
           value: "custom"
         }
       ]
@@ -754,20 +816,15 @@ async function ensureEnvironment(config) {
     throw new Error("kickstart 目前只支持 macOS。");
   }
 
-  const isWhichAvailable = await pathExists("/usr/bin/which");
-  if (!isWhichAvailable) {
-    throw new Error("系统缺少 which 命令，无法检查启动命令。");
-  }
-
   const binary = getCommandBinary(config.launchCommand);
   if (!binary) {
     throw new Error("启动命令无效，请重新初始化。");
   }
 
   try {
-    await execFileAsync("which", [binary]);
+    await execFileAsync("zsh", ["-lic", `command -v ${shellQuote(binary)} >/dev/null 2>&1`]);
   } catch {
-    throw new Error(`未检测到 ${binary}，请先确保它已加入 PATH。`);
+    throw new Error(`未检测到 ${binary}，请先确保它可在终端中执行。`);
   }
 }
 
