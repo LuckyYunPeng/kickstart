@@ -2,9 +2,9 @@
 
 [中文](#中文) | [English](#english)
 
-`kickstart` is a terminal productivity tool for macOS + iTerm2. It scans Git projects on your machine, shows candidate projects by most recent update time, supports multi-selection, and automatically opens multiple projects in a single iTerm2 window with a grid layout, running the command you chose during initialization in each pane, such as `opencode .`, `claude`, or another custom command, so you can quickly restore your working context. It also supports workspace presets, so you can save a named project set and reopen it later.
+`kickstart` is a terminal productivity tool for macOS + iTerm2. It scans Git projects on your machine, shows candidate projects by most recent update time, supports multi-selection, and automatically opens multiple projects in a single iTerm2 window with a grid layout, running the command you chose during initialization in each pane, such as `opencode .`, `claude`, `codex`, `npm run dev`, `npm run start`, or another custom command, so you can quickly restore your working context. The recent-project list also shows each repository's current branch and whether it has pending changes. It also supports workspace presets, so you can save a named project set and reopen it later.
 
-`kickstart` 是一个面向 macOS + iTerm2 的终端效率工具。它会扫描你电脑上的 Git 项目，按最近更新时间展示候选项目，支持多选，并在一个 iTerm2 窗口中按网格布局自动打开多个项目，在每个 pane 中执行你初始化时选择的命令，比如 `opencode .`、`claude` 或其他自定义命令，快速恢复工作现场。同时也支持“工作区预设”，可以把常用项目组合保存下来，后续直接一键恢复。
+`kickstart` 是一个面向 macOS + iTerm2 的终端效率工具。它会扫描你电脑上的 Git 项目，按最近更新时间展示候选项目，支持多选，并在一个 iTerm2 窗口中按网格布局自动打开多个项目，在每个 pane 中执行你初始化时选择的命令，比如 `opencode .`、`claude`、`codex`、`npm run dev`、`npm run start` 或其他自定义命令，快速恢复工作现场。最近项目列表还会显示仓库当前分支和是否有待提交改动。同时也支持“工作区预设”，可以把常用项目组合保存下来，后续直接一键恢复。
 
 ---
 
@@ -44,12 +44,17 @@ npm install -g kickstart-workspace
 
 ```bash
 kickstart
+# or
+kk
 ```
 
 首次运行时，你可以选择启动命令：
 
 - `opencode` -> `opencode .`
 - `claude` -> `claude`
+- `codex` -> `codex`
+- `npm run dev` -> `npm run dev`
+- `npm run start` -> `npm run start`
 - `custom`
 
 启动后，你可以选择三种入口：
@@ -107,12 +112,17 @@ Run:
 
 ```bash
 kickstart
+# or
+kk
 ```
 
 On first run, you can choose a launch command:
 
 - `opencode` -> `opencode .`
 - `claude` -> `claude`
+- `codex` -> `codex`
+- `npm run dev` -> `npm run dev`
+- `npm run start` -> `npm run start`
 - `custom`
 
 After startup, you can choose between:

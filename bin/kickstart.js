@@ -541,8 +541,16 @@ async function initializeConfig() {
           value: "claude"
         },
         {
-          name: "kk",
-          value: "kk"
+          name: "codex",
+          value: "codex"
+        },
+        {
+          name: "npm run dev",
+          value: "npm run dev"
+        },
+        {
+          name: "npm run start",
+          value: "npm run start"
         },
         {
           name: "自定义输入",
