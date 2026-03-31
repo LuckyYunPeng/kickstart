@@ -1,6 +1,6 @@
 {
   "name": "kickstart-workspace",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Open recent Git projects and workspace presets in a single iTerm2 grid window.",
   "type": "module",
   "bin": {
