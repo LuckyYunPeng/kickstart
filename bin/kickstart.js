@@ -819,6 +819,53 @@ async function openProjectsInIterm(repoPaths, launchCommand) {
   await execFileAsync("osascript", ["-e", script]);
 }
 
+const STARTUP_QUOTES = [
+  "先完成，再完美。",
+  "代码是写给人看的，顺便让机器执行。",
+  "简单是复杂的终极形式。",
+  "不要过早优化。",
+  "调试代码比写代码难一倍，所以写代码时越聪明，调试时就越难。",
+  "好的代码是最好的文档。",
+  "重构不是重写，是尊重。",
+  "命名是编程中最难的事之一。",
+  "最好的性能优化是删代码。",
+  "每行注释都是一次对未来自己的道歉。",
+  "写代码时想着接手的人是个暴力狂。",
+  "复杂是敌人，简单是朋友。",
+  "把大问题拆成小问题，再把小问题解决掉。",
+  "没有银弹。",
+  "可运行的代码胜过完美的计划。",
+  "学会说「我不知道」是工程师的成熟。",
+  "测试不是为了证明没有 bug，而是为了找到 bug。",
+  "技术债是借来的时间。",
+  "架构是为了让变化更容易发生。",
+  "少即是多。",
+  "它在我电脑上能跑的……",
+  "等等，这里有个 bug……",
+  "这段代码我也不知道为什么能跑，但就是能跑。",
+  "注释写的是「临时方案」，其实已经三年了。",
+  "先 commit，再想后果。",
+  "重启一下试试？",
+  "这不是 bug，这是 feature。",
+  "我只是改了一行，然后就什么都坏了。",
+  "文档？代码就是文档。",
+  "下班前一分钟不要改生产环境。",
+];
+
+function showStartupEgg() {
+  const quote = STARTUP_QUOTES[Math.floor(Math.random() * STARTUP_QUOTES.length)];
+  const day = new Date().getDay();
+  const daysToWeekend = day === 0 || day === 6 ? 0 : 6 - day;
+  const weekendMsg =
+    daysToWeekend === 0
+      ? "今天周末，好好休息 🎉"
+      : `距离周末还有 ${daysToWeekend} 天，加油！`;
+  process.stdout.write(`\u001b[90m─────────────────────────────────\u001b[0m\n`);
+  process.stdout.write(`  \u001b[33m💡 ${quote}\u001b[0m\n`);
+  process.stdout.write(`  \u001b[36m📅 ${weekendMsg}\u001b[0m\n`);
+  process.stdout.write(`\u001b[90m─────────────────────────────────\u001b[0m\n\n`);
+}
+
 async function ensureEnvironment(config) {
   if (process.platform !== "darwin") {
     throw new Error("kickstart 目前只支持 macOS。");
@@ -857,6 +904,7 @@ async function main() {
   }
 
   await ensureEnvironment(config);
+  showStartupEgg();
   const startupMode = await promptStartupMode();
 
   if (startupMode === "recentProjects") {
