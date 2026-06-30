@@ -13,9 +13,12 @@ const CACHE_DIR = path.join(HOME_DIR, ".kickstart");
 const CONFIG_FILE = path.join(CACHE_DIR, "config.json");
 const LAST_SELECTION_FILE = path.join(CACHE_DIR, "last-selection.json");
 const WORKSPACES_FILE = path.join(CACHE_DIR, "workspaces.json");
+const APP_WORKSPACES_FILE = path.join(CACHE_DIR, "app-workspaces.json");
 const WINDOW_READY_DELAY = 0.4;
 const PANE_READY_DELAY = 0.25;
 const COMMAND_READY_DELAY = 0.15;
+const APP_LAUNCH_DELAY_MS = 2000;
+const APP_POSITION_DELAY_MS = 300;
 const MAX_RESULT_OPTIONS = [5, 10, 15, 20, 25, 30];
 const SKIP_DIRS = new Set([
   ".Trash",
@@ -37,6 +40,22 @@ const SKIP_DIRS = new Set([
   ".turbo",
   ".git"
 ]);
+
+const LAYOUT_LABELS = {
+  "1x2": "2等分（左右）",
+  "1x3": "3等分（左中右）",
+  "2x2": "4等分 2×2",
+  "2x3": "6等分 2×3",
+};
+
+const CELL_POSITION_LABELS = {
+  "1x2": ["左", "右"],
+  "1x3": ["左", "中", "右"],
+  "2x2": ["左上", "右上", "左下", "右下"],
+  "2x3": ["左上", "中上", "右上", "左下", "中下", "右下"],
+};
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function pathExists(targetPath) {
   try {
@@ -231,32 +250,6 @@ async function promptWorkspaceName(message, existingName = "") {
   return normalizeWorkspaceName(workspaceName);
 }
 
-async function promptStartupMode() {
-  const { startupMode } = await inquirer.prompt([
-    {
-      type: "list",
-      name: "startupMode",
-      message: "请选择进入方式",
-      choices: [
-        {
-          name: "最近项目",
-          value: "recentProjects"
-        },
-        {
-          name: "工作区预设",
-          value: "workspacePresets"
-        },
-        {
-          name: "管理预设",
-          value: "manageWorkspaces"
-        }
-      ]
-    }
-  ]);
-
-  return startupMode;
-}
-
 async function promptRecentRepoSelection(recentRepos, lastSelection, maxResults) {
   const { selectedRepos } = await inquirer.prompt([
     {
@@ -283,7 +276,7 @@ function formatRecentRepoChoice(repo) {
   const repoName = path.basename(repo.repoPath);
   const updatedAtText = formatUpdatedAt(repo.updatedAt);
   const branchText = repo.branchName || "unknown";
-  const statusText = repo.isDirty ? "\u001b[33m! 待提交\u001b[0m" : "";
+  const statusText = repo.isDirty ? "[33m! 待提交[0m" : "";
 
   return `${repoName}  ${updatedAtText}  [${branchText}]${statusText ? `  ${statusText}` : ""}`;
 }
@@ -444,13 +437,39 @@ async function handleWorkspacePresetsFlow(config) {
 }
 
 async function handleManageWorkspacesFlow() {
-  const workspaces = await readWorkspaces();
+  const repoWorkspaces = await readWorkspaces();
+  const appWorkspaces = await readAppWorkspaces();
 
-  if (workspaces.length === 0) {
-    process.stdout.write("当前没有任何工作区预设可管理。\n");
+  if (repoWorkspaces.length === 0 && appWorkspaces.length === 0) {
+    process.stdout.write("当前没有任何预设可管理。\n");
     return;
   }
 
+  let presetType = "workspace";
+
+  if (repoWorkspaces.length > 0 && appWorkspaces.length > 0) {
+    const answer = await inquirer.prompt([
+      {
+        type: "list",
+        name: "presetType",
+        message: "管理哪类预设？",
+        choices: [
+          { name: "工作区预设（项目）", value: "workspace" },
+          { name: "App 预设", value: "app" }
+        ]
+      }
+    ]);
+    presetType = answer.presetType;
+  } else if (appWorkspaces.length > 0) {
+    presetType = "app";
+  }
+
+  if (presetType === "app") {
+    await handleManageAppWorkspacesFlow();
+    return;
+  }
+
+  const workspaces = repoWorkspaces;
   const { manageAction } = await inquirer.prompt([
     {
       type: "list",
@@ -517,6 +536,500 @@ async function handleManageWorkspacesFlow() {
   await deleteWorkspace(selectedWorkspace.name);
   process.stdout.write(`已删除工作区预设：${selectedWorkspace.name}\n`);
 }
+
+// ─── App 网格布局 ────────────────────────────────────────────────────────────
+
+function isValidAppWorkspaceRecord(workspace) {
+  return (
+    workspace &&
+    typeof workspace.name === "string" &&
+    workspace.name.trim() !== "" &&
+    Array.isArray(workspace.apps) &&
+    workspace.apps.length > 0 &&
+    typeof workspace.layout === "string" &&
+    workspace.layout in LAYOUT_LABELS
+  );
+}
+
+async function readAppWorkspaces() {
+  try {
+    const content = await fs.readFile(APP_WORKSPACES_FILE, "utf8");
+    const parsed = JSON.parse(content);
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return sortWorkspaces(
+      parsed
+        .filter(isValidAppWorkspaceRecord)
+        .map((workspace) => ({
+          name: normalizeWorkspaceName(workspace.name),
+          apps: workspace.apps.filter((item) => typeof item === "string"),
+          layout: workspace.layout,
+          updatedAt:
+            typeof workspace.updatedAt === "string" && workspace.updatedAt.trim() !== ""
+              ? workspace.updatedAt
+              : new Date(0).toISOString()
+        }))
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function writeAppWorkspaces(workspaces) {
+  await fs.mkdir(CACHE_DIR, { recursive: true });
+  await fs.writeFile(APP_WORKSPACES_FILE, JSON.stringify(sortWorkspaces(workspaces), null, 2), "utf8");
+}
+
+async function saveAppWorkspace(workspaceName, apps, layout) {
+  const normalizedName = normalizeWorkspaceName(workspaceName);
+  const workspaces = await readAppWorkspaces();
+
+  if (isWorkspaceNameTaken(workspaces, normalizedName)) {
+    throw new Error(`App 预设 ${normalizedName} 已存在。`);
+  }
+
+  workspaces.push({
+    name: normalizedName,
+    apps: [...apps],
+    layout,
+    updatedAt: new Date().toISOString()
+  });
+
+  await writeAppWorkspaces(workspaces);
+}
+
+async function promptAppWorkspaceName(message, existingName = "") {
+  const workspaces = await readAppWorkspaces();
+  const { workspaceName } = await inquirer.prompt([
+    {
+      type: "input",
+      name: "workspaceName",
+      message,
+      default: existingName,
+      validate(value) {
+        const normalizedName = normalizeWorkspaceName(value);
+
+        if (!normalizedName) {
+          return "预设名称不能为空";
+        }
+
+        if (isWorkspaceNameTaken(workspaces, normalizedName, existingName)) {
+          return "预设名称已存在";
+        }
+
+        return true;
+      }
+    }
+  ]);
+
+  return normalizeWorkspaceName(workspaceName);
+}
+
+function renderLayoutDiagram(layout) {
+  const diagrams = {
+    "1x2": [
+      "  ┌──────┬──────┐",
+      "  │  ①  │  ②  │",
+      "  └──────┴──────┘",
+    ],
+    "1x3": [
+      "  ┌────┬────┬────┐",
+      "  │ ① │ ② │ ③ │",
+      "  └────┴────┴────┘",
+    ],
+    "2x2": [
+      "  ┌──────┬──────┐",
+      "  │  ①  │  ②  │",
+      "  ├──────┼──────┤",
+      "  │  ③  │  ④  │",
+      "  └──────┴──────┘",
+    ],
+    "2x3": [
+      "  ┌────┬────┬────┐",
+      "  │ ① │ ② │ ③ │",
+      "  ├────┼────┼────┤",
+      "  │ ④ │ ⑤ │ ⑥ │",
+      "  └────┴────┴────┘",
+    ],
+  };
+
+  return (diagrams[layout] ?? []).join("\n");
+}
+
+async function promptAppAssignment(selectedApps, layout) {
+  const cellLabels = CELL_POSITION_LABELS[layout];
+  const totalCells = cellLabels.length;
+  const assignment = new Array(totalCells).fill("");
+  const remaining = [...selectedApps];
+  const EMPTY = "__empty__";
+
+  process.stdout.write(`\n${renderLayoutDiagram(layout)}\n\n`);
+
+  for (let i = 0; i < totalCells; i++) {
+    if (remaining.length === 0) break;
+
+    const remainingCells = totalCells - i;
+    const canLeaveEmpty = remaining.length < remainingCells;
+    const choices = remaining.map((app) => ({ name: app, value: app }));
+
+    if (canLeaveEmpty) {
+      choices.push({ name: "留空", value: EMPTY });
+    }
+
+    const { appChoice } = await inquirer.prompt([
+      {
+        type: "list",
+        name: "appChoice",
+        message: `区域 ${i + 1}（${cellLabels[i]}）`,
+        choices,
+        loop: false
+      }
+    ]);
+
+    if (appChoice !== EMPTY) {
+      assignment[i] = appChoice;
+      remaining.splice(remaining.indexOf(appChoice), 1);
+    }
+  }
+
+  return assignment;
+}
+
+async function scanInstalledApps() {
+  const appDirs = [
+    "/Applications",
+    path.join(HOME_DIR, "Applications"),
+    "/Applications/Utilities"
+  ];
+  const apps = new Set();
+
+  for (const dir of appDirs) {
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        if (entry.name.endsWith(".app") && entry.isDirectory()) {
+          apps.add(entry.name.replace(/\.app$/, ""));
+        }
+      }
+    } catch {
+      // 目录不存在则跳过
+    }
+  }
+
+  return [...apps].sort((a, b) => a.localeCompare(b, "zh-CN"));
+}
+
+function recommendLayout(count) {
+  if (count <= 2) return "1x2";
+  if (count <= 4) return "2x2";
+  return "2x3";
+}
+
+function getAvailableLayouts(count) {
+  if (count === 3) return ["2x2", "1x3"];
+  return [recommendLayout(count)];
+}
+
+async function promptLayoutSelection(count) {
+  const recommended = recommendLayout(count);
+  const available = getAvailableLayouts(count);
+
+  if (available.length === 1) {
+    process.stdout.write(`布局：${LAYOUT_LABELS[recommended]}\n`);
+    return recommended;
+  }
+
+  const { layout } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "layout",
+      message: "选择布局",
+      choices: available.map((l) => ({
+        name: l === recommended ? `${LAYOUT_LABELS[l]}（推荐）` : LAYOUT_LABELS[l],
+        value: l
+      })),
+      default: recommended
+    }
+  ]);
+
+  return layout;
+}
+
+async function getUsableScreenBounds() {
+  const jxa = `
+ObjC.import('AppKit');
+var screens = $.NSScreen.screens;
+var primaryFrame = screens.objectAtIndex(0).frame;
+var mouseLoc = $.NSEvent.mouseLocation;
+
+var target = null;
+for (var i = 0; i < screens.count; i++) {
+  var scr = screens.objectAtIndex(i);
+  var f = scr.frame;
+  if (mouseLoc.x >= f.origin.x && mouseLoc.x < f.origin.x + f.size.width &&
+      mouseLoc.y >= f.origin.y && mouseLoc.y < f.origin.y + f.size.height) {
+    target = scr;
+    break;
+  }
+}
+if (!target) target = $.NSScreen.mainScreen;
+
+var v = target.visibleFrame;
+var left = Math.round(v.origin.x);
+var top = Math.round(primaryFrame.size.height - v.origin.y - v.size.height);
+var right = Math.round(v.origin.x + v.size.width);
+var bottom = top + Math.round(v.size.height);
+[left, top, right, bottom].join(',')
+`;
+  const { stdout } = await execFileAsync("osascript", ["-l", "JavaScript", "-e", jxa]);
+  const [left, top, right, bottom] = stdout.trim().split(",").map(Number);
+  return { left, top, right, bottom };
+}
+
+function calculateCellBounds(layout, { left, top, right, bottom }) {
+  const W = right - left;
+  const H = bottom - top;
+  const cells = [];
+
+  if (layout === "1x2") {
+    const w = Math.floor(W / 2);
+    cells.push({ left, top, right: left + w, bottom });
+    cells.push({ left: left + w, top, right, bottom });
+  } else if (layout === "1x3") {
+    const w = Math.floor(W / 3);
+    cells.push({ left, top, right: left + w, bottom });
+    cells.push({ left: left + w, top, right: left + 2 * w, bottom });
+    cells.push({ left: left + 2 * w, top, right, bottom });
+  } else if (layout === "2x2") {
+    const w = Math.floor(W / 2);
+    const h = Math.floor(H / 2);
+    cells.push({ left, top, right: left + w, bottom: top + h });
+    cells.push({ left: left + w, top, right, bottom: top + h });
+    cells.push({ left, top: top + h, right: left + w, bottom });
+    cells.push({ left: left + w, top: top + h, right, bottom });
+  } else if (layout === "2x3") {
+    const w = Math.floor(W / 3);
+    const h = Math.floor(H / 2);
+
+    for (let row = 0; row < 2; row++) {
+      for (let col = 0; col < 3; col++) {
+        const cellLeft = left + col * w;
+        const cellTop = top + row * h;
+        const cellRight = col === 2 ? right : left + (col + 1) * w;
+        const cellBottom = row === 1 ? bottom : top + (row + 1) * h;
+        cells.push({ left: cellLeft, top: cellTop, right: cellRight, bottom: cellBottom });
+      }
+    }
+  }
+
+  return cells;
+}
+
+async function positionAppWindow(appName, cell) {
+  const { left, top, right, bottom } = cell;
+  const width = right - left;
+  const height = bottom - top;
+  const quoted = appleScriptQuote(appName);
+
+  // activate 后取 frontmost 进程，避免进程名与 App 名不匹配的问题
+  const script = [
+    `tell application "${quoted}" to activate`,
+    `delay 0.4`,
+    `tell application "System Events"`,
+    `  set frontProc to first process whose frontmost is true`,
+    `  if (count of windows of frontProc) > 0 then`,
+    `    set position of window 1 of frontProc to {${left}, ${top}}`,
+    `    set size of window 1 of frontProc to {${width}, ${height}}`,
+    `  end if`,
+    `end tell`
+  ].join("\n");
+
+  try {
+    await execFileAsync("osascript", ["-e", script]);
+  } catch {
+    // best effort
+  }
+}
+
+async function openAppsInLayout(assignment, layout) {
+  const screenBounds = await getUsableScreenBounds();
+  const cells = calculateCellBounds(layout, screenBounds);
+
+  const appsToOpen = assignment.filter(Boolean);
+  await Promise.all(appsToOpen.map((app) => execFileAsync("open", ["-a", app])));
+  await sleep(APP_LAUNCH_DELAY_MS);
+
+  for (let i = 0; i < assignment.length; i++) {
+    const app = assignment[i];
+    const cell = cells[i];
+    if (!app || !cell) continue;
+    await positionAppWindow(app, cell);
+    await sleep(APP_POSITION_DELAY_MS);
+  }
+}
+
+async function handleAppLayoutFlow() {
+  const appWorkspaces = await readAppWorkspaces();
+  const NEW_LAYOUT = "__new__";
+
+  if (appWorkspaces.length > 0) {
+    const { selection } = await inquirer.prompt([
+      {
+        type: "list",
+        name: "selection",
+        message: "选择 App 预设或新建布局",
+        choices: [
+          ...appWorkspaces.map((ws) => ({
+            name: `${ws.name}  ${ws.apps.filter(Boolean).length} 个应用  [${LAYOUT_LABELS[ws.layout]}]`,
+            value: ws.name,
+            description: ws.apps.filter(Boolean).join(", ")
+          })),
+          { name: "── 新建布局 ──", value: NEW_LAYOUT }
+        ],
+        loop: false
+      }
+    ]);
+
+    if (selection !== NEW_LAYOUT) {
+      const workspace = appWorkspaces.find((ws) => ws.name === selection);
+      await openAppsInLayout(workspace.apps, workspace.layout);
+      process.stdout.write(`已打开预设：${workspace.name}\n`);
+      return;
+    }
+  }
+
+  process.stdout.write("正在扫描已安装应用...\n");
+  const apps = await scanInstalledApps();
+
+  if (apps.length === 0) {
+    process.stdout.write("未找到已安装应用。\n");
+    return;
+  }
+
+  const { selectedApps } = await inquirer.prompt([
+    {
+      type: "checkbox",
+      name: "selectedApps",
+      message: "选择要打开的应用（2~6 个）",
+      choices: apps.map((app) => ({ name: app, value: app })),
+      pageSize: 20,
+      loop: false,
+      validate(value) {
+        if (value.length < 2) return "至少选择 2 个应用";
+        if (value.length > 6) return "最多选择 6 个应用";
+        return true;
+      }
+    }
+  ]);
+
+  const layout = await promptLayoutSelection(selectedApps.length);
+  const assignment = await promptAppAssignment(selectedApps, layout);
+
+  const { nextAction } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "nextAction",
+      message: "接下来要怎么处理这组应用？",
+      choices: [
+        { name: "直接打开", value: "openDirectly" },
+        { name: "保存为预设后打开", value: "saveAndOpen" }
+      ]
+    }
+  ]);
+
+  if (nextAction === "saveAndOpen") {
+    const workspaceName = await promptAppWorkspaceName("请输入 App 预设名称");
+    await saveAppWorkspace(workspaceName, assignment, layout);
+    process.stdout.write(`已保存 App 预设：${workspaceName}\n`);
+  }
+
+  await openAppsInLayout(assignment, layout);
+  process.stdout.write(`已打开 ${assignment.filter(Boolean).length} 个应用。\n`);
+}
+
+async function handleManageAppWorkspacesFlow() {
+  const workspaces = await readAppWorkspaces();
+
+  if (workspaces.length === 0) {
+    process.stdout.write("当前没有任何 App 预设可管理。\n");
+    return;
+  }
+
+  const { manageAction } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "manageAction",
+      message: "请选择预设管理操作",
+      choices: [
+        { name: "查看预设", value: "view" },
+        { name: "重命名预设", value: "rename" },
+        { name: "删除预设", value: "delete" }
+      ]
+    }
+  ]);
+
+  const { workspaceName } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "workspaceName",
+      message: "请选择 App 预设",
+      choices: workspaces.map((ws) => ({
+        name: `${ws.name}  ${ws.apps.length} 个应用  [${LAYOUT_LABELS[ws.layout]}]`,
+        value: ws.name,
+        description: ws.apps.join(", ")
+      })),
+      loop: false
+    }
+  ]);
+
+  const selectedWorkspace = workspaces.find((ws) => ws.name === workspaceName);
+
+  if (manageAction === "view") {
+    const cellLabels = CELL_POSITION_LABELS[selectedWorkspace.layout] ?? [];
+    process.stdout.write(`App 预设：${selectedWorkspace.name}  [${LAYOUT_LABELS[selectedWorkspace.layout]}]\n`);
+    process.stdout.write(`${renderLayoutDiagram(selectedWorkspace.layout)}\n\n`);
+    selectedWorkspace.apps.forEach((app, index) => {
+      const label = cellLabels[index] ? `（${cellLabels[index]}）` : "";
+      process.stdout.write(`  区域 ${index + 1}${label}  ${app || "（空）"}\n`);
+    });
+    return;
+  }
+
+  if (manageAction === "rename") {
+    const nextName = await promptAppWorkspaceName("请输入新的预设名称", selectedWorkspace.name);
+    const nextWorkspaces = workspaces.map((ws) =>
+      ws.name !== selectedWorkspace.name
+        ? ws
+        : { ...ws, name: nextName, updatedAt: new Date().toISOString() }
+    );
+    await writeAppWorkspaces(nextWorkspaces);
+    process.stdout.write(`已将 App 预设重命名为：${nextName}\n`);
+    return;
+  }
+
+  const { isConfirmed } = await inquirer.prompt([
+    {
+      type: "confirm",
+      name: "isConfirmed",
+      message: `确定删除 App 预设 ${selectedWorkspace.name} 吗？`,
+      default: false
+    }
+  ]);
+
+  if (!isConfirmed) {
+    process.stdout.write("已取消删除。\n");
+    return;
+  }
+
+  await writeAppWorkspaces(workspaces.filter((ws) => ws.name !== workspaceName));
+  process.stdout.write(`已删除 App 预设：${workspaceName}\n`);
+}
+
+// ─── 配置与初始化 ────────────────────────────────────────────────────────────
 
 function getCommandBinary(command) {
   const [binary = ""] = command.trim().split(/\s+/);
@@ -860,10 +1373,10 @@ function showStartupEgg() {
     daysToWeekend === 0
       ? "今天周末，好好休息 🎉"
       : `距离周末还有 ${daysToWeekend} 天，加油！`;
-  process.stdout.write(`\u001b[90m─────────────────────────────────\u001b[0m\n`);
-  process.stdout.write(`  \u001b[33m💡 ${quote}\u001b[0m\n`);
-  process.stdout.write(`  \u001b[36m📅 ${weekendMsg}\u001b[0m\n`);
-  process.stdout.write(`\u001b[90m─────────────────────────────────\u001b[0m\n\n`);
+  process.stdout.write(`[90m─────────────────────────────────[0m\n`);
+  process.stdout.write(`  [33m💡 ${quote}[0m\n`);
+  process.stdout.write(`  [36m📅 ${weekendMsg}[0m\n`);
+  process.stdout.write(`[90m─────────────────────────────────[0m\n\n`);
 }
 
 async function ensureEnvironment(config) {
@@ -881,6 +1394,36 @@ async function ensureEnvironment(config) {
   } catch {
     throw new Error(`未检测到 ${binary}，请先确保它可在终端中执行。`);
   }
+}
+
+async function promptStartupMode() {
+  const { startupMode } = await inquirer.prompt([
+    {
+      type: "list",
+      name: "startupMode",
+      message: "请选择进入方式",
+      choices: [
+        {
+          name: "App 网格布局",
+          value: "appLayout"
+        },
+        {
+          name: "最近项目",
+          value: "recentProjects"
+        },
+        {
+          name: "工作区预设",
+          value: "workspacePresets"
+        },
+        {
+          name: "管理预设",
+          value: "manageWorkspaces"
+        }
+      ]
+    }
+  ]);
+
+  return startupMode;
 }
 
 async function main() {
@@ -903,9 +1446,20 @@ async function main() {
     config = await initializeConfig();
   }
 
-  await ensureEnvironment(config);
   showStartupEgg();
   const startupMode = await promptStartupMode();
+
+  if (startupMode === "appLayout") {
+    await handleAppLayoutFlow();
+    return;
+  }
+
+  if (startupMode === "manageWorkspaces") {
+    await handleManageWorkspacesFlow();
+    return;
+  }
+
+  await ensureEnvironment(config);
 
   if (startupMode === "recentProjects") {
     await handleRecentProjectsFlow(config);
@@ -916,8 +1470,6 @@ async function main() {
     await handleWorkspacePresetsFlow(config);
     return;
   }
-
-  await handleManageWorkspacesFlow();
 }
 
 main().catch((error) => {
