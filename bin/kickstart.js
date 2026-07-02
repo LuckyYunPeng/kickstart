@@ -829,30 +829,99 @@ function calculateCellBounds(layout, { left, top, right, bottom }) {
   return cells;
 }
 
-async function positionAppWindow(appName, cell) {
+async function positionAppWindow(appName, cell, options = {}) {
   const { left, top, right, bottom } = cell;
   const width = right - left;
   const height = bottom - top;
   const quoted = appleScriptQuote(appName);
+  const anchorBottom = options.anchorBottom === true;
 
-  // activate 后取 frontmost 进程，避免进程名与 App 名不匹配的问题
+  // 使用重试循环：activate 后最多等 ~4.5s，每 0.3s 检查一次是否有窗口可定位。
+  // 按进程名精确锁定目标窗口（不用 `frontmost is true`，activate 异步会抓错窗口；
+  // AppleScript 字符串比较默认不区分大小写，故 name is "Ghostty" 能匹配进程 "ghostty"）。
+  // size → position → size 落位后，按两种模式收尾：
+  //   - 上排(默认)：若被顶部菜单栏夹下压了 δ，把高度减掉 δ，使底边仍停在 cell.bottom。
+  //   - 下排(anchorBottom)：窗口若因最小高度被撑大，整体上移使底边贴住 cell.bottom(可用区底)，
+  //     不压 Dock；让出的空间由同列上排缩短填补（调用方用返回的实际顶边作分界）。
+  // position 都放最后一步：部分 app(如 Fork)resize 后会自动重新居中，须最后再 assert 位置。
+  const adjustBlock = anchorBottom
+    ? [
+        `        set fSizeTmp to size of targetWindow`,
+        `        set actualHeight to item 2 of fSizeTmp`,
+        `        set position of targetWindow to {${left}, ${bottom} - actualHeight}`,
+      ]
+    : [
+        `        set winPos to position of targetWindow`,
+        `        set actualTop to item 2 of winPos`,
+        `        if actualTop > ${top} then`,
+        `          set adjH to ${height} - (actualTop - ${top})`,
+        `          if adjH > 100 then set size of targetWindow to {${width}, adjH}`,
+        `        end if`,
+        `        set position of targetWindow to {${left}, ${top}}`,
+      ];
+
   const script = [
+    `set logLine to "no-window"`,
     `tell application "${quoted}" to activate`,
-    `delay 0.4`,
-    `tell application "System Events"`,
-    `  set frontProc to first process whose frontmost is true`,
-    `  if (count of windows of frontProc) > 0 then`,
-    `    set position of window 1 of frontProc to {${left}, ${top}}`,
-    `    set size of window 1 of frontProc to {${width}, ${height}}`,
-    `  end if`,
-    `end tell`
+    `set windowSet to false`,
+    `repeat 15 times`,
+    `  delay 0.3`,
+    `  tell application "System Events"`,
+    `    try`,
+    `      set frontProc to first application process whose name is "${quoted}"`,
+    `      set procName to name of frontProc`,
+    `      if (count of windows of frontProc) > 0 then`,
+    `        set targetWindow to window 1 of frontProc`,
+    `        set size of targetWindow to {${width}, ${height}}`,
+    `        set position of targetWindow to {${left}, ${top}}`,
+    `        set size of targetWindow to {${width}, ${height}}`,
+    ...adjustBlock,
+    `        set fPos to position of targetWindow`,
+    `        set fSize to size of targetWindow`,
+    `        set logLine to "frontProc=" & procName & " mode=${anchorBottom ? "bottom" : "top"} reqCell={${left},${top},${right},${bottom}} finalPos={" & (item 1 of fPos) & "," & (item 2 of fPos) & "} finalSize={" & (item 1 of fSize) & "," & (item 2 of fSize) & "}"`,
+    `        set windowSet to true`,
+    `      else`,
+    `        set logLine to "frontProc=" & procName & " has 0 windows (retrying)"`,
+    `      end if`,
+    `    on error errMsg`,
+    `      set logLine to "ERROR: " & errMsg`,
+    `    end try`,
+    `  end tell`,
+    `  if windowSet then exit repeat`,
+    `  tell application "${quoted}" to activate`,
+    `end repeat`,
+    `return logLine`
   ].join("\n");
 
+  let diag = "";
   try {
-    await execFileAsync("osascript", ["-e", script]);
-  } catch {
-    // best effort
+    const { stdout } = await execFileAsync("osascript", ["-e", script]);
+    diag = stdout.trim();
+  } catch (err) {
+    diag = `EXEC-FAIL: ${err && err.message ? err.message : err}`;
   }
+
+  try {
+    await fs.appendFile(
+      path.join(CACHE_DIR, "layout-debug.log"),
+      `[${new Date().toISOString()}] app=${appName} cell={L:${left},T:${top},R:${right},B:${bottom}} -> ${diag}\n`,
+      "utf8"
+    );
+  } catch {
+    // 日志写入失败不影响布局
+  }
+
+  // 解析实际几何返回给调用方（供本列自适应使用）
+  const posMatch = diag.match(/finalPos=\{(-?\d+),(-?\d+)\}/);
+  const sizeMatch = diag.match(/finalSize=\{(-?\d+),(-?\d+)\}/);
+  if (posMatch && sizeMatch) {
+    const x = Number(posMatch[1]);
+    const y = Number(posMatch[2]);
+    const w = Number(sizeMatch[1]);
+    const h = Number(sizeMatch[2]);
+    return { left: x, top: y, right: x + w, bottom: y + h, width: w, height: h };
+  }
+  return null;
 }
 
 async function openAppsInLayout(assignment, layout) {
@@ -863,12 +932,61 @@ async function openAppsInLayout(assignment, layout) {
   await Promise.all(appsToOpen.map((app) => execFileAsync("open", ["-a", app])));
   await sleep(APP_LAUNCH_DELAY_MS);
 
-  for (let i = 0; i < assignment.length; i++) {
-    const app = assignment[i];
-    const cell = cells[i];
-    if (!app || !cell) continue;
-    await positionAppWindow(app, cell);
+  const [rows, cols] = layout.split("x").map(Number);
+
+  // 单行布局（1x2 / 1x3）：每个窗口独占整屏高度，直接逐格摆放。
+  if (rows < 2) {
+    for (let i = 0; i < assignment.length; i++) {
+      const app = assignment[i];
+      if (!app || !cells[i]) continue;
+      await positionAppWindow(app, cells[i]);
+      await sleep(APP_POSITION_DELAY_MS);
+    }
+    return;
+  }
+
+  // 双行布局（2x2 / 2x3）：两趟摆放，用一条【全局分界线】保证整排对齐。
+  // 若某个下排 app 有最小高度（缩不到半屏），单列自适应会让各列分界高低不一、上排参差。
+  // 因此：第一趟先把所有下排窗口锚底摆一遍，探测出「最高的下排窗口」把分界顶到多高；
+  // 取所有列中最靠上的那条作为全局分界，第二趟再统一按它摆放上下两排 ——
+  // 上排全部等高对齐、下排全部等高对齐，代价只是整体分界不在正中（被最高的下排 app 决定）。
+  // cells 为行优先：上排 index = col，下排 index = cols + col。
+  const usableTop = screenBounds.top;
+  const usableBottom = screenBounds.bottom;
+
+  // 第一趟：探测下排各窗口锚底后的实际顶边，取最高者为全局分界
+  let boundary = cells[0].bottom; // 默认等分（上排格子底边）
+  for (let col = 0; col < cols; col++) {
+    const botApp = assignment[cols + col];
+    const botCell = cells[cols + col];
+    if (!botApp || !botCell) continue;
+    const actual = await positionAppWindow(botApp, botCell, { anchorBottom: true });
     await sleep(APP_POSITION_DELAY_MS);
+    if (actual && Number.isFinite(actual.top)) {
+      boundary = Math.min(boundary, actual.top);
+    }
+  }
+  // 安全下限：避免上排被压成过小/负高度
+  boundary = Math.max(boundary, usableTop + 100);
+
+  // 第二趟：用同一条 boundary 统一摆放，保证上下两排各自对齐
+  for (let col = 0; col < cols; col++) {
+    const topApp = assignment[col];
+    const botApp = assignment[cols + col];
+    const topCell = cells[col];
+    const botCell = cells[cols + col];
+
+    if (botApp && botCell) {
+      // 下排：占据 [boundary, 可用区底]，各列同高
+      await positionAppWindow(botApp, { ...botCell, top: boundary, bottom: usableBottom }, { anchorBottom: true });
+      await sleep(APP_POSITION_DELAY_MS);
+    }
+
+    if (topApp && topCell) {
+      // 上排：占据 [可用区顶, boundary]，各列同高
+      await positionAppWindow(topApp, { ...topCell, top: usableTop, bottom: boundary });
+      await sleep(APP_POSITION_DELAY_MS);
+    }
   }
 }
 
