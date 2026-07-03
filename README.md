@@ -105,9 +105,7 @@ chmod +x kickstart.1h.sh
 
 > **nvm 用户注意**：SwiftBar 运行时没有 shell 环境，`which node` 在脚本内可能失效。建议直接写死完整路径，例如 `/Users/yourname/.nvm/versions/node/v22.19.0/bin/node`。
 
----
-
-## English
+> **辅助功能权限**：窗口自动排布依赖 `System Events`，需要辅助功能权限。若 App 启动了但窗口位置不对，请前往**系统设置 → 隐私与安全性 → 辅助功能**，将 `SwiftBar` 添加并启用。
 
 ### App Grid Layout (core feature)
 
@@ -203,3 +201,5 @@ chmod +x kickstart.1h.sh
 Click 🚀 in the menu bar to instantly trigger any App preset — windows are arranged automatically.
 
 > **nvm users**: SwiftBar runs without a shell environment, so `which node` may not resolve correctly inside the script. Use the full hardcoded path instead, e.g. `/Users/yourname/.nvm/versions/node/v22.19.0/bin/node`.
+
+> **Accessibility permission**: Window positioning relies on `System Events` and requires accessibility access. If apps launch but windows aren't arranged correctly, go to **System Settings → Privacy & Security → Accessibility** and add `SwiftBar`.
