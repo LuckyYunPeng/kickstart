@@ -1546,7 +1546,41 @@ async function promptStartupMode() {
 
 async function main() {
   const commandArg = process.argv[2];
+  const commandVal = process.argv[3];
   const isResetRequested = commandArg === "reset";
+
+  if (commandArg === "--workspace-index") {
+    const idx = parseInt(commandVal, 10);
+    const workspaces = await readWorkspaces();
+    if (isNaN(idx) || idx < 0 || idx >= workspaces.length) {
+      throw new Error(`无效的工作区索引：${commandVal}`);
+    }
+    const config = await readConfig();
+    if (!config) throw new Error("kickstart 未初始化，请先运行 kickstart。");
+    await ensureEnvironment(config);
+    const ws = workspaces[idx];
+    const { validRepoPaths, invalidRepoPaths } = await getExistingRepoPaths(ws.repoPaths);
+    if (invalidRepoPaths.length > 0) {
+      process.stdout.write(`已跳过 ${invalidRepoPaths.length} 个失效路径。\n`);
+    }
+    if (validRepoPaths.length === 0) {
+      throw new Error(`预设 "${ws.name}" 没有可用的项目路径。`);
+    }
+    await openSelectedProjects(validRepoPaths, config.launchCommand);
+    return;
+  }
+
+  if (commandArg === "--app-preset-index") {
+    const idx = parseInt(commandVal, 10);
+    const appWorkspaces = await readAppWorkspaces();
+    if (isNaN(idx) || idx < 0 || idx >= appWorkspaces.length) {
+      throw new Error(`无效的 App 预设索引：${commandVal}`);
+    }
+    const ws = appWorkspaces[idx];
+    await openAppsInLayout(ws.apps, ws.layout);
+    process.stdout.write(`已打开预设：${ws.name}\n`);
+    return;
+  }
 
   if (commandArg && !isResetRequested) {
     throw new Error("仅支持默认启动或 `kickstart reset`。");

@@ -48,6 +48,63 @@ kk
 - `工作区预设`（Git 仓库）
 - `管理预设`
 
+### SwiftBar 集成（可选）
+
+安装 [SwiftBar](https://swiftbar.app) 后，可以把 App 预设放进菜单栏，点击即触发，无需打开终端。
+
+**前提**：已全局安装 `kickstart-workspace`，已安装 SwiftBar 并配置好插件目录。
+
+在 SwiftBar 插件目录中创建 `kickstart.1h.sh`：
+
+```bash
+#!/bin/bash
+# <swiftbar.title>KickStart</swiftbar.title>
+# <swiftbar.hideAboutPlugin>true</swiftbar.hideAboutPlugin>
+# <swiftbar.refreshOnOpen>true</swiftbar.refreshOnOpen>
+
+# 替换为你自己的 node 路径（运行 `which node` 获取）
+NODE="$(which node)"
+# 替换为你自己的 kickstart.js 路径（运行 `npm root -g` 获取前缀）
+KK="$(npm root -g)/kickstart-workspace/bin/kickstart.js"
+
+$NODE -e "
+const fs = require('fs');
+const os = require('os');
+const HOME = os.homedir();
+const NODE = '$NODE';
+const KK = '$KK';
+
+function readJSON(file) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return []; }
+}
+
+const appWorkspaces = readJSON(HOME + '/.kickstart/app-workspaces.json');
+
+console.log('🚀');
+console.log('---');
+
+if (appWorkspaces.length > 0) {
+  console.log('App 预设 | disabled=true size=11 color=#888888');
+  appWorkspaces.forEach((w, i) => {
+    console.log(w.name + ' | bash=\"' + NODE + '\" param1=' + KK + ' param2=--app-preset-index param3=' + i + ' terminal=false refresh=false');
+  });
+  console.log('---');
+}
+
+console.log('打开 Kickstart... | bash=\"' + NODE + '\" param1=' + KK + ' terminal=true');
+"
+```
+
+赋予执行权限：
+
+```bash
+chmod +x kickstart.1h.sh
+```
+
+之后点击菜单栏 🚀，即可直接触发 App 预设，窗口自动排布到位。
+
+> **nvm 用户注意**：SwiftBar 运行时没有 shell 环境，`which node` 在脚本内可能失效。建议直接写死完整路径，例如 `/Users/yourname/.nvm/versions/node/v22.19.0/bin/node`。
+
 ---
 
 ## English
@@ -89,3 +146,60 @@ After startup, choose between four entries:
 - `Recent Projects` (Git repos)
 - `Workspace Presets` (Git repos)
 - `Manage Presets`
+
+### SwiftBar Integration (optional)
+
+With [SwiftBar](https://swiftbar.app) installed, you can put your App presets in the menu bar and trigger them with a single click — no terminal needed.
+
+**Requirements**: `kickstart-workspace` installed globally, SwiftBar installed with a plugin directory configured.
+
+Create `kickstart.1h.sh` in your SwiftBar plugin directory:
+
+```bash
+#!/bin/bash
+# <swiftbar.title>KickStart</swiftbar.title>
+# <swiftbar.hideAboutPlugin>true</swiftbar.hideAboutPlugin>
+# <swiftbar.refreshOnOpen>true</swiftbar.refreshOnOpen>
+
+# Replace with your actual node path (run `which node`)
+NODE="$(which node)"
+# Replace with your actual kickstart.js path (run `npm root -g` for the prefix)
+KK="$(npm root -g)/kickstart-workspace/bin/kickstart.js"
+
+$NODE -e "
+const fs = require('fs');
+const os = require('os');
+const HOME = os.homedir();
+const NODE = '$NODE';
+const KK = '$KK';
+
+function readJSON(file) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return []; }
+}
+
+const appWorkspaces = readJSON(HOME + '/.kickstart/app-workspaces.json');
+
+console.log('🚀');
+console.log('---');
+
+if (appWorkspaces.length > 0) {
+  console.log('App Presets | disabled=true size=11 color=#888888');
+  appWorkspaces.forEach((w, i) => {
+    console.log(w.name + ' | bash=\"' + NODE + '\" param1=' + KK + ' param2=--app-preset-index param3=' + i + ' terminal=false refresh=false');
+  });
+  console.log('---');
+}
+
+console.log('Open Kickstart... | bash=\"' + NODE + '\" param1=' + KK + ' terminal=true');
+"
+```
+
+Make it executable:
+
+```bash
+chmod +x kickstart.1h.sh
+```
+
+Click 🚀 in the menu bar to instantly trigger any App preset — windows are arranged automatically.
+
+> **nvm users**: SwiftBar runs without a shell environment, so `which node` may not resolve correctly inside the script. Use the full hardcoded path instead, e.g. `/Users/yourname/.nvm/versions/node/v22.19.0/bin/node`.
